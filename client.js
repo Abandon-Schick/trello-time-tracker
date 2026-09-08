@@ -36,11 +36,25 @@ window.TrelloPowerUp.initialize(
         return [
           {
             title: "Estimated",
-            text: data.estimate ? fmtHrs(data.estimate) + "h" : "Not set"
+            text: data.estimate ? fmtHrs(data.estimate) + "h" : "Not set",
+            callback: function (t) {
+              return t.popup({
+                title: "Set Estimate",
+                url: "./popup-estimate.html",
+                height: 260
+              });
+            }
           },
           {
             title: "Time spent",
-            text: fmtHrs(data.spent) + "h" + (data.timerStart ? " (timer running)" : "")
+            text: fmtHrs(data.spent) + "h" + (data.timerStart ? " (timer running)" : ""),
+            callback: function (t) {
+              return t.popup({
+                title: "Log Time",
+                url: "./popup-logtime.html",
+                height: 420
+              });
+            }
           }
         ];
       });
@@ -49,7 +63,7 @@ window.TrelloPowerUp.initialize(
     "card-buttons": function (t) {
       return [
         {
-          icon: { dark: ICON_DARK, light: ICON_LIGHT },
+          icon: ICON_LIGHT,
           text: "Set Estimate",
           callback: function (t) {
             return t.popup({
@@ -60,7 +74,7 @@ window.TrelloPowerUp.initialize(
           }
         },
         {
-          icon: { dark: ICON_DARK, light: ICON_LIGHT },
+          icon: ICON_LIGHT,
           text: "Log Time",
           callback: function (t) {
             return t.popup({
@@ -71,7 +85,7 @@ window.TrelloPowerUp.initialize(
           }
         },
         {
-          icon: { dark: ICON_DARK, light: ICON_LIGHT },
+          icon: ICON_LIGHT,
           text: "Timer",
           callback: function (t) {
             return t.popup({
