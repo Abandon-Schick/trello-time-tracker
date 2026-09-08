@@ -1,0 +1,98 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    body { font-family: -apple-system, Helvetica, Arial, sans-serif; margin: 0; padding: 16px; text-align: center; }
+    .elapsed { font-size: 32px; font-variant-numeric: tabular-nums; margin: 8px 0 16px; color: #172b4d; }
+    button { padding: 10px 16px; font-size: 14px; border: none; border-radius: 4px; cursor: pointer; margin: 4px; }
+    .start { background: #1f845a; color: white; width: 100%; padding: 12px; font-size: 15px; }
+    .start:hover { background: #186a48; }
+    .stop { background: #0c66e4; color: white; }
+    .stop:hover { background: #0055cc; }
+    .cancel { background: white; color: #ae2a19; border: 1px solid #dcdfe4; }
+    .cancel:hover { background: #ffebe6; }
+    .hint { font-size: 12px; color: #6b778c; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <div id="idle">
+    <p style="color:#44546f;">No timer running for this card.</p>
+    <button class="start" id="startBtn">▶ Start timer</button>
+  </div>
+
+  <div id="running" style="display:none;">
+    <div class="elapsed" id="elapsed">0:00:00</div>
+    <button class="stop" id="stopBtn">■ Stop &amp; log time</button>
+    <button class="cancel" id="cancelBtn">Cancel (discard)</button>
+    <div class="hint">Stopping adds this elapsed time to the card's running total.</div>
+  </div>
+
+  <script src="https://p.trellocdn.com/power-up.min.js"></script>
+  <script>
+    var t = window.TrelloPowerUp.iframe();
+    var interval = null;
+
+    function pad(n) { return String(n).padStart(2, "0"); }
+
+    function tick(startMs) {
+      var secs = Math.floor((Date.now() - startMs) / 1000);
+      var h = Math.floor(secs / 3600);
+      var m = Math.floor((secs % 3600) / 60);
+      var s = secs % 60;
+      document.getElementById("elapsed").textContent = h + ":" + pad(m) + ":" + pad(s);
+    }
+
+    function showRunning(startMs) {
+      document.getElementById("idle").style.display = "none";
+      document.getElementById("running").style.display = "block";
+      tick(startMs);
+      interval = setInterval(function () { tick(startMs); }, 1000);
+    }
+
+    function showIdle() {
+      document.getElementById("idle").style.display = "block";
+      document.getElementById("running").style.display = "none";
+      if (interval) clearInterval(interval);
+    }
+
+    t.get("card", "shared", "timerStart", null).then(function (v) {
+      if (v) showRunning(new Date(v).getTime());
+    });
+
+    document.getElementById("startBtn").addEventListener("click", function () {
+      var nowIso = new Date().toISOString();
+      t.set("card", "shared", "timerStart", nowIso).then(function () {
+        showRunning(new Date(nowIso).getTime());
+      });
+    });
+
+    document.getElementById("stopBtn").addEventListener("click", function () {
+      if (interval) clearInterval(interval);
+      t.get("card", "shared", "timerStart", null).then(function (startIso) {
+        if (!startIso) return;
+        var hours = (Date.now() - new Date(startIso).getTime()) / 3600000;
+        return t.get("card", "shared", "spent", 0).then(function (spent) {
+          var next = Math.round(((parseFloat(spent) || 0) + hours) * 10000) / 10000;
+          return t.set("card", "shared", "spent", next);
+        });
+      }).then(function () {
+        return t.remove("card", "shared", "timerStart");
+      }).then(function () {
+        t.closePopup();
+      });
+    });
+
+    document.getElementById("cancelBtn").addEventListener("click", function () {
+      if (interval) clearInterval(interval);
+      t.remove("card", "shared", "timerStart").then(function () {
+        t.closePopup();
+      });
+    });
+
+    t.render(function () {
+      t.sizeTo("body").done();
+    });
+  </script>
+</body>
+</html>

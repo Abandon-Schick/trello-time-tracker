@@ -1,0 +1,224 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    body { font-family: -apple-system, Helvetica, Arial, sans-serif; margin: 0; padding: 16px; color: #172b4d; }
+    h3 { margin: 18px 0 8px; font-size: 14px; color: #44546f; text-transform: uppercase; letter-spacing: .03em; }
+    h3:first-of-type { margin-top: 0; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    td, th { text-align: left; padding: 4px 8px 4px 0; border-bottom: 1px solid #f0f1f2; }
+    th { color: #6b778c; font-weight: 500; }
+    td.num, th.num { text-align: right; }
+    .grand { font-size: 15px; margin: 14px 0; padding: 10px; background: #f4f5f7; border-radius: 4px; }
+    .grand strong { font-size: 20px; }
+    .refresh { padding: 8px 14px; font-size: 13px; border: 1px solid #dcdfe4; border-radius: 4px; background: white; cursor: pointer; margin-bottom: 10px; }
+    .refresh:hover { background: #f4f5f7; }
+    .authbox { text-align: center; padding: 30px 10px; }
+    .authbox button { padding: 10px 18px; font-size: 14px; border: none; border-radius: 4px; background: #0c66e4; color: white; cursor: pointer; }
+    .authbox button:hover { background: #0055cc; }
+    .authbox p { color: #44546f; font-size: 13px; }
+    .loading { text-align: center; padding: 30px; color: #6b778c; }
+    .nodata { color: #6b778c; font-style: italic; }
+  </style>
+</head>
+<body>
+  <div id="app"><div class="loading">Loading…</div></div>
+
+  <script src="https://p.trellocdn.com/power-up.min.js"></script>
+  <script src="./config.js"></script>
+  <script>
+    var t = window.TrelloPowerUp.iframe({
+      appKey: TIME_TRACKER_CONFIG.APP_KEY,
+      appName: TIME_TRACKER_CONFIG.APP_NAME
+    });
+    var app = document.getElementById("app");
+
+    function h(tag, attrs, children) {
+      var el = document.createElement(tag);
+      attrs = attrs || {};
+      Object.keys(attrs).forEach(function (k) {
+        if (k === "text") el.textContent = attrs[k];
+        else if (k === "class") el.className = attrs[k];
+        else el.setAttribute(k, attrs[k]);
+      });
+      (children || []).forEach(function (c) { el.appendChild(c); });
+      return el;
+    }
+
+    // Extract {estimate, spent} from a card's pluginData array.
+    // Doesn't match on idPlugin so it keeps working even if you change
+    // your Power-Up's App Key later - just looks for the shape of our data.
+    function extractTimeData(card) {
+      var estimate = 0, spent = 0;
+      (card.pluginData || []).forEach(function (pd) {
+        var val;
+        try { val = JSON.parse(pd.value); } catch (e) { return; }
+        if (val && (typeof val.estimate !== "undefined" || typeof val.spent !== "undefined")) {
+          estimate += parseFloat(val.estimate) || 0;
+          spent += parseFloat(val.spent) || 0;
+        }
+      });
+      return { estimate: estimate, spent: spent };
+    }
+
+    function dueBucket(due) {
+      if (!due) return "No due date";
+      var d = new Date(due);
+      var now = new Date();
+      var days = (d - now) / 86400000;
+      if (days < 0) return "Overdue";
+      if (days <= 7) return "Due within 7 days";
+      if (days <= 30) return "Due within 8\u201330 days";
+      return "Due later than 30 days";
+    }
+
+    function round(n) { return Math.round(n * 100) / 100; }
+
+    function renderGroupTable(title, groupTotals, order) {
+      var keys = order || Object.keys(groupTotals).sort(function (a, b) {
+        return groupTotals[b].estimate - groupTotals[a].estimate;
+      });
+      var rows = keys
+        .filter(function (k) { return groupTotals[k]; })
+        .map(function (k) {
+          var g = groupTotals[k];
+          return h("tr", {}, [
+            h("td", { text: k }),
+            h("td", { class: "num", text: round(g.estimate) + "h" }),
+            h("td", { class: "num", text: round(g.spent) + "h" })
+          ]);
+        });
+      if (rows.length === 0) {
+        return h("div", {}, [
+          h("h3", { text: title }),
+          h("p", { class: "nodata", text: "No cards with time data yet." })
+        ]);
+      }
+      return h("div", {}, [
+        h("h3", { text: title }),
+        h("table", {}, [
+          h("tr", {}, [
+            h("th", { text: "" }),
+            h("th", { class: "num", text: "Estimated" }),
+            h("th", { class: "num", text: "Spent" })
+          ])
+        ].concat(rows))
+      ]);
+    }
+
+    function buildReport(cards, lists, labels) {
+      var listOrder = lists.map(function (l) { return l.name; });
+      var listMap = {};
+      lists.forEach(function (l) { listMap[l.id] = l.name; });
+
+      var byList = {}, byLabel = {}, byDue = {};
+      var grandEst = 0, grandSpent = 0;
+
+      cards.forEach(function (card) {
+        var td = extractTimeData(card);
+        if (td.estimate === 0 && td.spent === 0) return; // skip untouched cards
+
+        grandEst += td.estimate;
+        grandSpent += td.spent;
+
+        var listName = listMap[card.idList] || "(unknown list)";
+        byList[listName] = byList[listName] || { estimate: 0, spent: 0 };
+        byList[listName].estimate += td.estimate;
+        byList[listName].spent += td.spent;
+
+        if (card.labels && card.labels.length) {
+          card.labels.forEach(function (lbl) {
+            var name = lbl.name || lbl.color || "(unnamed label)";
+            byLabel[name] = byLabel[name] || { estimate: 0, spent: 0 };
+            byLabel[name].estimate += td.estimate;
+            byLabel[name].spent += td.spent;
+          });
+        } else {
+          byLabel["(no label)"] = byLabel["(no label)"] || { estimate: 0, spent: 0 };
+          byLabel["(no label)"].estimate += td.estimate;
+          byLabel["(no label)"].spent += td.spent;
+        }
+
+        var bucket = dueBucket(card.due);
+        byDue[bucket] = byDue[bucket] || { estimate: 0, spent: 0 };
+        byDue[bucket].estimate += td.estimate;
+        byDue[bucket].spent += td.spent;
+      });
+
+      app.innerHTML = "";
+      app.appendChild(h("button", { class: "refresh", text: "↻ Refresh" }));
+      app.querySelector(".refresh").addEventListener("click", loadReport);
+
+      app.appendChild(
+        h("div", { class: "grand" }, [
+          document.createTextNode("Total across " + cards.filter(function(c){var td=extractTimeData(c); return td.estimate||td.spent;}).length + " cards with time data: "),
+          h("strong", { text: round(grandEst) + "h estimated" }),
+          document.createTextNode(" / " + round(grandSpent) + "h spent")
+        ])
+      );
+
+      app.appendChild(renderGroupTable("By list", byList, listOrder.filter(function(n){return byList[n];})));
+      app.appendChild(renderGroupTable("By label", byLabel));
+      app.appendChild(renderGroupTable(
+        "By due date",
+        byDue,
+        ["Overdue", "Due within 7 days", "Due within 8\u201330 days", "Due later than 30 days", "No due date"]
+      ));
+    }
+
+    function loadReport() {
+      app.innerHTML = "";
+      app.appendChild(h("div", { class: "loading", text: "Loading…" }));
+
+      Promise.all([
+        t.board("id"),
+        t.lists("all"),
+        t.getRestApi().getToken()
+      ]).then(function (results) {
+        var boardId = results[0].id;
+        var lists = results[1];
+        var token = results[2];
+        var url =
+          "https://api.trello.com/1/boards/" + boardId +
+          "/cards?fields=name,idList,labels,due&pluginData=true" +
+          "&key=" + TIME_TRACKER_CONFIG.APP_KEY + "&token=" + token;
+
+        return fetch(url).then(function (res) {
+          if (!res.ok) throw new Error("Trello API error " + res.status);
+          return res.json();
+        }).then(function (cards) {
+          buildReport(cards, lists, []);
+        });
+      }).catch(function (err) {
+        app.innerHTML = "";
+        app.appendChild(h("p", { class: "nodata", text: "Couldn't load the report: " + err.message }));
+      });
+    }
+
+    function showAuthPrompt() {
+      app.innerHTML = "";
+      app.appendChild(
+        h("div", { class: "authbox" }, [
+          h("p", { text: "This report reads estimated/spent hours across every card on the board, so it needs one-time read-only access." }),
+          h("button", { text: "Authorize read access" })
+        ])
+      );
+      app.querySelector("button").addEventListener("click", function () {
+        t.getRestApi().authorize({ scope: "read", expiration: "never" }).then(function () {
+          loadReport();
+        });
+      });
+    }
+
+    t.getRestApi().isAuthorized().then(function (isAuthorized) {
+      if (isAuthorized) loadReport();
+      else showAuthPrompt();
+    });
+
+    t.render(function () {
+      t.sizeTo("body").done();
+    });
+  </script>
+</body>
+</html>

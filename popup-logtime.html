@@ -1,0 +1,179 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    body { font-family: -apple-system, Helvetica, Arial, sans-serif; margin: 0; padding: 16px; }
+    .total { font-size: 15px; margin-bottom: 14px; color: #172b4d; }
+    .total strong { font-size: 20px; }
+    .quick { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px; }
+    .quick button { padding: 10px 4px; font-size: 13px; border: 1px solid #dcdfe4; border-radius: 4px; background: #f4f5f7; cursor: pointer; }
+    .quick button:hover { background: #e4e6ea; }
+    .manual { display: flex; gap: 8px; margin-bottom: 14px; }
+    .manual input { flex: 1; box-sizing: border-box; font-size: 15px; padding: 8px; border: 1px solid #dcdfe4; border-radius: 4px; }
+    .manual button { padding: 8px 14px; font-size: 14px; border: none; border-radius: 4px; background: #0c66e4; color: white; cursor: pointer; }
+    .manual button:hover { background: #0055cc; }
+    .reset { width: 100%; padding: 8px; font-size: 13px; border: 1px solid #dcdfe4; border-radius: 4px; background: white; color: #ae2a19; cursor: pointer; }
+    .reset:hover { background: #ffebe6; }
+    .sync { margin-top: 18px; padding-top: 14px; border-top: 1px solid #f0f1f2; }
+    .sync-hint { font-size: 12px; color: #6b778c; margin-bottom: 8px; }
+    .sync-hint code { background: #f4f5f7; padding: 1px 4px; border-radius: 3px; }
+    .sync-btn { width: 100%; padding: 8px; font-size: 13px; border: 1px solid #dcdfe4; border-radius: 4px; background: white; cursor: pointer; }
+    .sync-btn:hover { background: #f4f5f7; }
+    .sync-status { font-size: 12px; color: #44546f; margin-top: 8px; min-height: 16px; }
+  </style>
+</head>
+<body>
+  <div class="total">Time spent so far: <strong id="total">0</strong>h</div>
+
+  <div class="quick">
+    <button data-add="0.0833">+5m</button>
+    <button data-add="0.25">+15m</button>
+    <button data-add="0.5">+30m</button>
+    <button data-add="1">+1h</button>
+    <button data-add="2">+2h</button>
+    <button data-add="4">+4h</button>
+  </div>
+
+  <div class="manual">
+    <input id="manualInput" type="number" step="0.25" placeholder="Custom hours, e.g. 1.75" />
+    <button id="manualAdd">Add</button>
+  </div>
+
+  <button class="reset" id="resetBtn">Reset total to 0</button>
+
+  <div class="sync">
+    <div class="sync-hint">
+      Logged time on your phone? Comment <code>#time 45m</code>, <code>#time 1.5h</code>, or <code>#time 1:30</code>
+      on this card from the native app — it'll be picked up here automatically.
+    </div>
+    <button class="sync-btn" id="syncBtn">↻ Check comments now</button>
+    <div class="sync-status" id="syncStatus"></div>
+  </div>
+
+  <script src="https://p.trellocdn.com/power-up.min.js"></script>
+  <script src="./config.js"></script>
+  <script>
+    var t = window.TrelloPowerUp.iframe({
+      appKey: TIME_TRACKER_CONFIG.APP_KEY,
+      appName: TIME_TRACKER_CONFIG.APP_NAME
+    });
+
+    var TIME_COMMENT_RE = /#time\s+([\d.:]+)\s*(h|hr|hrs|m|min|mins)?/i;
+
+    function parseHours(raw, unit) {
+      unit = (unit || "h").toLowerCase();
+      if (raw.indexOf(":") > -1) {
+        var parts = raw.split(":");
+        return (parseFloat(parts[0]) || 0) + (parseFloat(parts[1]) || 0) / 60;
+      }
+      var n = parseFloat(raw);
+      if (isNaN(n)) return 0;
+      return unit[0] === "m" ? n / 60 : n;
+    }
+
+    function syncFromComments() {
+      var statusEl = document.getElementById("syncStatus");
+      statusEl.textContent = "Checking comments…";
+
+      t.getRestApi().isAuthorized().then(function (isAuth) {
+        if (!isAuth) {
+          statusEl.textContent =
+            "Not authorized yet — open the board's \"Time Report\" button once first, then retry here.";
+          return;
+        }
+
+        return Promise.all([t.getRestApi().getToken(), t.card("id")]).then(function (res) {
+          var token = res[0];
+          var cardId = res[1].id;
+
+          return t.get("card", "shared", "lastCommentSync", null).then(function (lastSync) {
+            var url =
+              "https://api.trello.com/1/cards/" + cardId +
+              "/actions?filter=commentCard&limit=100&key=" + TIME_TRACKER_CONFIG.APP_KEY +
+              "&token=" + token;
+
+            return fetch(url).then(function (r) {
+              if (!r.ok) throw new Error("Trello API error " + r.status);
+              return r.json();
+            }).then(function (actions) {
+              var totalAdd = 0, count = 0, newest = lastSync;
+
+              actions.forEach(function (a) {
+                if (lastSync && new Date(a.date) <= new Date(lastSync)) return;
+                var text = a.data && a.data.text;
+                var m = text && text.match(TIME_COMMENT_RE);
+                if (!m) return;
+                var hrs = parseHours(m[1], m[2]);
+                if (hrs > 0) { totalAdd += hrs; count++; }
+                if (!newest || new Date(a.date) > new Date(newest)) newest = a.date;
+              });
+
+              if (count === 0) {
+                statusEl.textContent = "No new #time comments found.";
+                return;
+              }
+
+              return t.get("card", "shared", "spent", 0).then(function (spent) {
+                var next = Math.round(((parseFloat(spent) || 0) + totalAdd) * 10000) / 10000;
+                return t.set("card", "shared", { spent: next, lastCommentSync: newest });
+              }).then(function () {
+                statusEl.textContent =
+                  "Synced " + count + " comment(s), +" + (Math.round(totalAdd * 100) / 100) + "h.";
+                refresh();
+              });
+            });
+          });
+        });
+      }).catch(function (err) {
+        statusEl.textContent = "Sync error: " + err.message;
+      });
+    }
+
+    document.getElementById("syncBtn").addEventListener("click", syncFromComments);
+
+    function refresh() {
+      return t.get("card", "shared", "spent", 0).then(function (v) {
+        document.getElementById("total").textContent =
+          Math.round((parseFloat(v) || 0) * 100) / 100;
+      });
+    }
+
+    function addTime(hours) {
+      t.get("card", "shared", "spent", 0).then(function (v) {
+        var next = (parseFloat(v) || 0) + hours;
+        next = Math.round(next * 10000) / 10000;
+        return t.set("card", "shared", "spent", next);
+      }).then(refresh);
+    }
+
+    document.querySelectorAll(".quick button").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        addTime(parseFloat(btn.dataset.add));
+      });
+    });
+
+    document.getElementById("manualAdd").addEventListener("click", function () {
+      var input = document.getElementById("manualInput");
+      var v = parseFloat(input.value);
+      if (!isNaN(v) && v !== 0) addTime(v);
+      input.value = "";
+    });
+    document.getElementById("manualInput").addEventListener("keydown", function (e) {
+      if (e.key === "Enter") document.getElementById("manualAdd").click();
+    });
+
+    document.getElementById("resetBtn").addEventListener("click", function () {
+      if (confirm("Reset time spent on this card back to 0?")) {
+        t.set("card", "shared", "spent", 0).then(refresh);
+      }
+    });
+
+    refresh();
+    syncFromComments();
+    t.render(function () {
+      t.sizeTo("body").done();
+    });
+  </script>
+</body>
+</html>

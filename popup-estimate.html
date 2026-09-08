@@ -1,0 +1,139 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    body { font-family: -apple-system, Helvetica, Arial, sans-serif; margin: 0; padding: 16px; }
+    label { display: block; font-size: 13px; color: #44546f; margin-bottom: 6px; }
+    input { width: 100%; box-sizing: border-box; font-size: 16px; padding: 8px; border: 1px solid #dcdfe4; border-radius: 4px; }
+    button { margin-top: 12px; width: 100%; padding: 10px; font-size: 14px; border: none; border-radius: 4px; background: #0c66e4; color: white; cursor: pointer; }
+    button:hover { background: #0055cc; }
+    .sync { margin-top: 18px; padding-top: 14px; border-top: 1px solid #f0f1f2; }
+    .sync-hint { font-size: 12px; color: #6b778c; margin-bottom: 8px; }
+    .sync-hint code { background: #f4f5f7; padding: 1px 4px; border-radius: 3px; }
+    .sync-btn { margin-top: 0; width: 100%; padding: 8px; font-size: 13px; border: 1px solid #dcdfe4; border-radius: 4px; background: white; color: #172b4d; cursor: pointer; }
+    .sync-btn:hover { background: #f4f5f7; }
+    .sync-status { font-size: 12px; color: #44546f; margin-top: 8px; min-height: 16px; }
+  </style>
+</head>
+<body>
+  <label for="est">Estimated hours for this card</label>
+  <input id="est" type="number" step="0.25" min="0" placeholder="e.g. 2.5" />
+  <button id="save">Save</button>
+
+  <div class="sync">
+    <div class="sync-hint">
+      Or comment <code>#estimate 2h</code>, <code>#estimate 1.5</code>, or <code>#estimate 1:30</code> on this card
+      from your phone — the most recent one is picked up here automatically and replaces whatever's above.
+    </div>
+    <button class="sync-btn" id="syncBtn">↻ Check comments now</button>
+    <div class="sync-status" id="syncStatus"></div>
+  </div>
+
+  <script src="https://p.trellocdn.com/power-up.min.js"></script>
+  <script src="./config.js"></script>
+  <script>
+    var t = window.TrelloPowerUp.iframe({
+      appKey: TIME_TRACKER_CONFIG.APP_KEY,
+      appName: TIME_TRACKER_CONFIG.APP_NAME
+    });
+
+    var ESTIMATE_COMMENT_RE = /#estimate\s+([\d.:]+)\s*(h|hr|hrs|m|min|mins)?/i;
+
+    function parseHours(raw, unit) {
+      unit = (unit || "h").toLowerCase();
+      if (raw.indexOf(":") > -1) {
+        var parts = raw.split(":");
+        return (parseFloat(parts[0]) || 0) + (parseFloat(parts[1]) || 0) / 60;
+      }
+      var n = parseFloat(raw);
+      if (isNaN(n)) return 0;
+      return unit[0] === "m" ? n / 60 : n;
+    }
+
+    function loadCurrentEstimate() {
+      return t.get("card", "shared", "estimate", "").then(function (v) {
+        document.getElementById("est").value = v;
+      });
+    }
+
+    document.getElementById("est").addEventListener("keydown", function (e) {
+      if (e.key === "Enter") document.getElementById("save").click();
+    });
+
+    document.getElementById("save").addEventListener("click", function () {
+      var v = parseFloat(document.getElementById("est").value) || 0;
+      t.set("card", "shared", "estimate", v).then(function () {
+        t.closePopup();
+      });
+    });
+
+    function syncEstimateFromComments() {
+      var statusEl = document.getElementById("syncStatus");
+      statusEl.textContent = "Checking comments…";
+
+      t.getRestApi().isAuthorized().then(function (isAuth) {
+        if (!isAuth) {
+          statusEl.textContent =
+            "Not authorized yet — open the board's \"Time Report\" button once first, then retry here.";
+          return;
+        }
+
+        return Promise.all([t.getRestApi().getToken(), t.card("id")]).then(function (res) {
+          var token = res[0];
+          var cardId = res[1].id;
+
+          return t.get("card", "shared", "lastEstimateCommentSync", null).then(function (lastSync) {
+            var url =
+              "https://api.trello.com/1/cards/" + cardId +
+              "/actions?filter=commentCard&limit=100&key=" + TIME_TRACKER_CONFIG.APP_KEY +
+              "&token=" + token;
+
+            return fetch(url).then(function (r) {
+              if (!r.ok) throw new Error("Trello API error " + r.status);
+              return r.json();
+            }).then(function (actions) {
+              // Find the newest matching comment posted after the last sync.
+              // Estimate REPLACES, so only the latest one matters, not a sum.
+              var latest = null;
+              actions.forEach(function (a) {
+                if (lastSync && new Date(a.date) <= new Date(lastSync)) return;
+                var text = a.data && a.data.text;
+                var m = text && text.match(ESTIMATE_COMMENT_RE);
+                if (!m) return;
+                if (!latest || new Date(a.date) > new Date(latest.date)) {
+                  latest = { date: a.date, hours: parseHours(m[1], m[2]) };
+                }
+              });
+
+              if (!latest) {
+                statusEl.textContent = "No new #estimate comments found.";
+                return;
+              }
+
+              return t.set("card", "shared", {
+                estimate: latest.hours,
+                lastEstimateCommentSync: latest.date
+              }).then(function () {
+                statusEl.textContent = "Applied #estimate " + latest.hours + "h from a comment.";
+                return loadCurrentEstimate();
+              });
+            });
+          });
+        });
+      }).catch(function (err) {
+        statusEl.textContent = "Sync error: " + err.message;
+      });
+    }
+
+    document.getElementById("syncBtn").addEventListener("click", syncEstimateFromComments);
+
+    loadCurrentEstimate();
+    syncEstimateFromComments();
+
+    t.render(function () {
+      t.sizeTo("body").done();
+    });
+  </script>
+</body>
+</html>
