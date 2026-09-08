@@ -185,7 +185,11 @@
           "&key=" + TIME_TRACKER_CONFIG.APP_KEY + "&token=" + token;
 
         return fetch(url).then(function (res) {
-          if (!res.ok) throw new Error("Trello API error " + res.status);
+          if (!res.ok) {
+            return res.text().then(function (body) {
+              throw new Error("Trello API error " + res.status + ": " + body);
+            });
+          }
           return res.json();
         }).then(function (cards) {
           buildReport(cards, lists, []);
