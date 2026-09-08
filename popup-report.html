@@ -3,7 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <style>
-    body { font-family: -apple-system, Helvetica, Arial, sans-serif; margin: 0; padding: 16px; color: #172b4d; }
+    html, body { height: 100%; margin: 0; }
+    body { font-family: -apple-system, Helvetica, Arial, sans-serif; padding: 16px; color: #172b4d; box-sizing: border-box; display: flex; flex-direction: column; }
     h3 { margin: 18px 0 8px; font-size: 14px; color: #44546f; text-transform: uppercase; letter-spacing: .03em; }
     h3:first-of-type { margin-top: 0; }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -12,8 +13,12 @@
     td.num, th.num { text-align: right; }
     .grand { font-size: 15px; margin: 14px 0; padding: 10px; background: #f4f5f7; border-radius: 4px; }
     .grand strong { font-size: 20px; }
-    .refresh { padding: 8px 14px; font-size: 13px; border: 1px solid #dcdfe4; border-radius: 4px; background: white; cursor: pointer; margin-bottom: 10px; }
+    .toolbar { display: flex; gap: 8px; margin-bottom: 10px; flex-shrink: 0; }
+    .refresh { flex: 1; padding: 8px 14px; font-size: 13px; border: 1px solid #dcdfe4; border-radius: 4px; background: white; cursor: pointer; }
     .refresh:hover { background: #f4f5f7; }
+    .refresh.primary { background: #0c66e4; color: white; border-color: #0c66e4; }
+    .refresh.primary:hover { background: #0055cc; }
+    .scroll-area { overflow-y: auto; flex: 1 1 auto; min-height: 0; }
     .authbox { text-align: center; padding: 30px 10px; }
     .authbox button { padding: 10px 18px; font-size: 14px; border: none; border-radius: 4px; background: #0c66e4; color: white; cursor: pointer; }
     .authbox button:hover { background: #0055cc; }
@@ -147,10 +152,20 @@
       });
 
       app.innerHTML = "";
-      app.appendChild(h("button", { class: "refresh", text: "↻ Refresh" }));
-      app.querySelector(".refresh").addEventListener("click", loadReport);
 
-      app.appendChild(
+      var toolbar = h("div", { class: "toolbar" }, [
+        h("button", { class: "refresh primary", text: "⬇ Download CSV" }),
+        h("button", { class: "refresh", text: "↻ Refresh" })
+      ]);
+      toolbar.children[0].addEventListener("click", function () {
+        downloadCsv(cards, listMap);
+      });
+      toolbar.children[1].addEventListener("click", loadReport);
+      app.appendChild(toolbar);
+
+      var scrollArea = h("div", { class: "scroll-area" });
+
+      scrollArea.appendChild(
         h("div", { class: "grand" }, [
           document.createTextNode("Total across " + cards.filter(function(c){var td=extractTimeData(c); return td.estimate||td.spent;}).length + " cards with time data: "),
           h("strong", { text: round(grandEst) + "h estimated" }),
@@ -158,13 +173,52 @@
         ])
       );
 
-      app.appendChild(renderGroupTable("By list", byList, listOrder.filter(function(n){return byList[n];})));
-      app.appendChild(renderGroupTable("By label", byLabel));
-      app.appendChild(renderGroupTable(
+      scrollArea.appendChild(renderGroupTable("By list", byList, listOrder.filter(function(n){return byList[n];})));
+      scrollArea.appendChild(renderGroupTable("By label", byLabel));
+      scrollArea.appendChild(renderGroupTable(
         "By due date",
         byDue,
         ["Overdue", "Due within 7 days", "Due within 8\u201330 days", "Due later than 30 days", "No due date"]
       ));
+
+      app.appendChild(scrollArea);
+    }
+
+    function csvField(v) {
+      v = (v === null || v === undefined) ? "" : String(v);
+      if (/[",\n]/.test(v)) v = '"' + v.replace(/"/g, '""') + '"';
+      return v;
+    }
+
+    function downloadCsv(cards, listMap) {
+      var header = ["Card", "List", "Labels", "Due Date", "Estimated Hours", "Spent Hours"];
+      var rows = [header];
+
+      cards.forEach(function (card) {
+        var td = extractTimeData(card);
+        var listName = listMap[card.idList] || "";
+        var labelNames = (card.labels || []).map(function (l) { return l.name || l.color || ""; }).join("; ");
+        var due = card.due ? card.due.slice(0, 10) : "";
+        rows.push([
+          card.name,
+          listName,
+          labelNames,
+          due,
+          td.estimate || "",
+          td.spent || ""
+        ]);
+      });
+
+      var csv = rows.map(function (r) { return r.map(csvField).join(","); }).join("\r\n");
+      var blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.href = url;
+      a.download = "trello-time-report-" + new Date().toISOString().slice(0, 10) + ".csv";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
     }
 
     function loadReport() {
@@ -221,7 +275,7 @@
     });
 
     t.render(function () {
-      t.sizeTo("body").done();
+      t.sizeTo(560).done();
     });
   </script>
 </body>
