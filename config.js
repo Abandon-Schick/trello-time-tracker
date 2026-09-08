@@ -6,8 +6,8 @@ var TIME_TRACKER_CONFIG = {
   // Your Power-Up's generated API Key, from trello.com/power-ups/admin
   // -> your Power-Up -> API Key. Only needed for the "Time Report" button
   // (feature 2), which is the only part that reads OTHER cards' data.
-  APP_KEY: "897ab283806140e699a56f8398433da3",
-  APP_NAME: "Punch Card",
+  APP_KEY: "PASTE_YOUR_APP_KEY_HERE",
+  APP_NAME: "Time Tracker",
   APP_AUTHOR: "Christian Schick"
 };
 
