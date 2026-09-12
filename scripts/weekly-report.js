@@ -223,7 +223,10 @@ async function main() {
   }
 
   // ---- Build the new card ----
-  const titleDate = new Date(now.getTime() + 24 * 3600 * 1000); // day after a Saturday-night run = Sunday
+  // Sunday that starts the new tracking week, derived from the (already
+  // day-of-week-aware) upcoming Monday rather than assuming "now" is Saturday
+  // — the cron fires at 03:00 UTC Sunday, so "now" is already Sunday in UTC.
+  const titleDate = new Date(new Date(nextMondayISO).getTime() - 24 * 3600 * 1000);
   const title = `${mmdd(titleDate)} ${CARD_TITLE_SUFFIX}`;
 
   const desc =
