@@ -55,15 +55,63 @@
     // Doesn't match on idPlugin so it keeps working even if you change
     // your Power-Up's App Key later - just looks for the shape of our data.
     function extractTimeData(card) {
-      var estimate = 0, spent = 0;
+      var estimate = 0, spent = 0, lastCommentSync = null, lastEstimateCommentSync = null;
       (card.pluginData || []).forEach(function (pd) {
         var val;
         try { val = JSON.parse(pd.value); } catch (e) { return; }
         if (val && (typeof val.estimate !== "undefined" || typeof val.spent !== "undefined")) {
           estimate += parseFloat(val.estimate) || 0;
           spent += parseFloat(val.spent) || 0;
+          if (val.lastCommentSync) lastCommentSync = val.lastCommentSync;
+          if (val.lastEstimateCommentSync) lastEstimateCommentSync = val.lastEstimateCommentSync;
         }
       });
+      return {
+        estimate: estimate, spent: spent,
+        lastCommentSync: lastCommentSync, lastEstimateCommentSync: lastEstimateCommentSync
+      };
+    }
+
+    var TIME_COMMENT_RE = /#time\s+([\d.:]+)\s*(h|hr|hrs|m|min|mins)?/i;
+    var ESTIMATE_COMMENT_RE = /#estimate\s+([\d.:]+)\s*(h|hr|hrs|m|min|mins)?/i;
+
+    function parseHours(raw, unit) {
+      unit = (unit || "h").toLowerCase();
+      if (raw.indexOf(":") > -1) {
+        var parts = raw.split(":");
+        return (parseFloat(parts[0]) || 0) + (parseFloat(parts[1]) || 0) / 60;
+      }
+      var n = parseFloat(raw);
+      if (isNaN(n)) return 0;
+      return unit[0] === "m" ? n / 60 : n;
+    }
+
+    // Merges each card's stored pluginData with any #time/#estimate comments
+    // posted AFTER that card's last sync marker, so the report is accurate
+    // even for cards nobody's opened since commenting. commentsByCard maps
+    // cardId -> array of {date, text} from a single board-wide fetch.
+    function liveTimeData(card, commentsByCard) {
+      var base = extractTimeData(card);
+      var comments = (commentsByCard[card.id] || []).slice().sort(function (a, b) {
+        return new Date(a.date) - new Date(b.date);
+      });
+
+      var estimate = base.estimate, spent = base.spent;
+
+      comments.forEach(function (c) {
+        if (base.lastCommentSync && new Date(c.date) <= new Date(base.lastCommentSync)) return;
+        var m = c.text.match(TIME_COMMENT_RE);
+        if (m) spent += parseHours(m[1], m[2]);
+      });
+
+      var latestEstimate = null;
+      comments.forEach(function (c) {
+        if (base.lastEstimateCommentSync && new Date(c.date) <= new Date(base.lastEstimateCommentSync)) return;
+        var m = c.text.match(ESTIMATE_COMMENT_RE);
+        if (m) latestEstimate = { date: c.date, hours: parseHours(m[1], m[2]) };
+      });
+      if (latestEstimate) estimate = latestEstimate.hours;
+
       return { estimate: estimate, spent: spent };
     }
 
@@ -112,22 +160,47 @@
       ]);
     }
 
-    function buildReport(cards, lists, labels) {
-      var listOrder = lists.map(function (l) { return l.name; });
-      var listMap = {};
-      lists.forEach(function (l) { listMap[l.id] = l.name; });
+    var DUE_BUCKET_ORDER = ["Overdue", "Due within 7 days", "Due within 8\u201330 days", "Due later than 30 days", "No due date"];
 
+    // All fetched data lives here so filter/group-by changes can re-render
+    // without re-fetching. Repopulated fresh each time loadReport() runs.
+    var STATE = {
+      cards: [], listMap: {}, listOrder: [], commentsByCard: {},
+      labelFilter: "All", groupBy: "list"
+    };
+
+    function distinctLabelNames(cards) {
+      var seen = {};
+      cards.forEach(function (card) {
+        (card.labels || []).forEach(function (l) {
+          seen[l.name || l.color || "(unnamed label)"] = true;
+        });
+      });
+      return Object.keys(seen).sort();
+    }
+
+    function cardMatchesLabelFilter(card, filter) {
+      if (filter === "All") return true;
+      if (filter === "(no label)") return !(card.labels && card.labels.length);
+      return (card.labels || []).some(function (l) { return (l.name || l.color) === filter; });
+    }
+
+    // Aggregates a set of cards into by-list/by-label/by-due-date totals,
+    // a grand total, and total remaining (estimate minus spent, floored at 0).
+    function computeAggregates(cards) {
       var byList = {}, byLabel = {}, byDue = {};
-      var grandEst = 0, grandSpent = 0;
+      var grandEst = 0, grandSpent = 0, totalRemaining = 0, touched = 0;
 
       cards.forEach(function (card) {
-        var td = extractTimeData(card);
+        var td = liveTimeData(card, STATE.commentsByCard);
         if (td.estimate === 0 && td.spent === 0) return; // skip untouched cards
+        touched++;
 
         grandEst += td.estimate;
         grandSpent += td.spent;
+        totalRemaining += Math.max(0, td.estimate - td.spent);
 
-        var listName = listMap[card.idList] || "(unknown list)";
+        var listName = STATE.listMap[card.idList] || "(unknown list)";
         byList[listName] = byList[listName] || { estimate: 0, spent: 0 };
         byList[listName].estimate += td.estimate;
         byList[listName].spent += td.spent;
@@ -151,35 +224,75 @@
         byDue[bucket].spent += td.spent;
       });
 
+      return { byList: byList, byLabel: byLabel, byDue: byDue, grandEst: grandEst, grandSpent: grandSpent, totalRemaining: totalRemaining, touched: touched };
+    }
+
+    function renderReport() {
+      var filteredCards = STATE.cards.filter(function (c) { return cardMatchesLabelFilter(c, STATE.labelFilter); });
+      var agg = computeAggregates(filteredCards);
+
       app.innerHTML = "";
 
+      // --- Filter / group-by row ---
+      var labelOptions = ["All"].concat(distinctLabelNames(STATE.cards));
+      var labelSelect = h("select", { class: "refresh" });
+      labelOptions.forEach(function (name) {
+        var opt = h("option", { text: name });
+        opt.value = name;
+        if (name === STATE.labelFilter) opt.selected = true;
+        labelSelect.appendChild(opt);
+      });
+      labelSelect.addEventListener("change", function () {
+        STATE.labelFilter = labelSelect.value;
+        renderReport();
+      });
+
+      var groupOptions = [["list", "Group by: List"], ["label", "Group by: Label"], ["due", "Group by: Due date"]];
+      var groupSelect = h("select", { class: "refresh" });
+      groupOptions.forEach(function (pair) {
+        var opt = h("option", { text: pair[1] });
+        opt.value = pair[0];
+        if (pair[0] === STATE.groupBy) opt.selected = true;
+        groupSelect.appendChild(opt);
+      });
+      groupSelect.addEventListener("change", function () {
+        STATE.groupBy = groupSelect.value;
+        renderReport();
+      });
+
+      var filterRow = h("div", { class: "toolbar" }, [labelSelect, groupSelect]);
+      app.appendChild(filterRow);
+
+      // --- Action row ---
       var toolbar = h("div", { class: "toolbar" }, [
         h("button", { class: "refresh primary", text: "⬇ Download CSV" }),
         h("button", { class: "refresh", text: "↻ Refresh" })
       ]);
       toolbar.children[0].addEventListener("click", function () {
-        downloadCsv(cards, listMap);
+        downloadCsv(STATE.cards, STATE.listMap, STATE.commentsByCard);
       });
       toolbar.children[1].addEventListener("click", loadReport);
       app.appendChild(toolbar);
 
       var scrollArea = h("div", { class: "scroll-area" });
 
+      var filterNote = STATE.labelFilter === "All" ? "" : " (filtered: " + STATE.labelFilter + ")";
       scrollArea.appendChild(
         h("div", { class: "grand" }, [
-          document.createTextNode("Total across " + cards.filter(function(c){var td=extractTimeData(c); return td.estimate||td.spent;}).length + " cards with time data: "),
-          h("strong", { text: round(grandEst) + "h estimated" }),
-          document.createTextNode(" / " + round(grandSpent) + "h spent")
+          document.createTextNode("Across " + agg.touched + " cards" + filterNote + ": "),
+          h("strong", { text: round(agg.grandEst) + "h estimated" }),
+          document.createTextNode(" / " + round(agg.grandSpent) + "h spent / "),
+          h("strong", { text: round(agg.totalRemaining) + "h remaining" })
         ])
       );
 
-      scrollArea.appendChild(renderGroupTable("By list", byList, listOrder.filter(function(n){return byList[n];})));
-      scrollArea.appendChild(renderGroupTable("By label", byLabel));
-      scrollArea.appendChild(renderGroupTable(
-        "By due date",
-        byDue,
-        ["Overdue", "Due within 7 days", "Due within 8\u201330 days", "Due later than 30 days", "No due date"]
-      ));
+      if (STATE.groupBy === "list") {
+        scrollArea.appendChild(renderGroupTable("By list", agg.byList, STATE.listOrder.filter(function (n) { return agg.byList[n]; })));
+      } else if (STATE.groupBy === "label") {
+        scrollArea.appendChild(renderGroupTable("By label", agg.byLabel));
+      } else {
+        scrollArea.appendChild(renderGroupTable("By due date", agg.byDue, DUE_BUCKET_ORDER));
+      }
 
       app.appendChild(scrollArea);
     }
@@ -190,12 +303,12 @@
       return v;
     }
 
-    function downloadCsv(cards, listMap) {
+    function downloadCsv(cards, listMap, commentsByCard) {
       var header = ["Card", "List", "Labels", "Due Date", "Estimated Hours", "Spent Hours"];
       var rows = [header];
 
       cards.forEach(function (card) {
-        var td = extractTimeData(card);
+        var td = liveTimeData(card, commentsByCard);
         var listName = listMap[card.idList] || "";
         var labelNames = (card.labels || []).map(function (l) { return l.name || l.color || ""; }).join("; ");
         var due = card.due ? card.due.slice(0, 10) : "";
@@ -233,20 +346,43 @@
         var boardId = results[0].id;
         var lists = results[1];
         var token = results[2];
-        var url =
+        var cardsUrl =
           "https://api.trello.com/1/boards/" + boardId +
           "/cards?fields=name,idList,labels,due&pluginData=true" +
           "&key=" + TIME_TRACKER_CONFIG.APP_KEY + "&token=" + token;
+        var commentsUrl =
+          "https://api.trello.com/1/boards/" + boardId +
+          "/actions?filter=commentCard&limit=1000&fields=data,date" +
+          "&key=" + TIME_TRACKER_CONFIG.APP_KEY + "&token=" + token;
 
-        return fetch(url).then(function (res) {
-          if (!res.ok) {
-            return res.text().then(function (body) {
-              throw new Error("Trello API error " + res.status + ": " + body);
-            });
-          }
-          return res.json();
-        }).then(function (cards) {
-          buildReport(cards, lists, []);
+        function fetchJson(u) {
+          return fetch(u).then(function (res) {
+            if (!res.ok) {
+              return res.text().then(function (body) {
+                throw new Error("Trello API error " + res.status + ": " + body);
+              });
+            }
+            return res.json();
+          });
+        }
+
+        return Promise.all([fetchJson(cardsUrl), fetchJson(commentsUrl)]).then(function (r) {
+          var cards = r[0], actions = r[1];
+          var commentsByCard = {};
+          actions.forEach(function (a) {
+            var cardId = a.data && a.data.card && a.data.card.id;
+            var text = a.data && a.data.text;
+            if (!cardId || !text) return;
+            (commentsByCard[cardId] = commentsByCard[cardId] || []).push({ date: a.date, text: text });
+          });
+
+          STATE.cards = cards;
+          STATE.listOrder = lists.map(function (l) { return l.name; });
+          STATE.listMap = {};
+          lists.forEach(function (l) { STATE.listMap[l.id] = l.name; });
+          STATE.commentsByCard = commentsByCard;
+
+          renderReport();
         });
       }).catch(function (err) {
         app.innerHTML = "";

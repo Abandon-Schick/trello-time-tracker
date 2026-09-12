@@ -1,0 +1,28 @@
+name: Weekly Time Report
+
+on:
+  schedule:
+    # 03:00 UTC Sunday ≈ 11:00 PM US Eastern Saturday during daylight time
+    # (spring-fall). During standard time (roughly Nov-Mar) this lands at
+    # 10:00 PM instead, since GitHub's cron is always UTC and doesn't shift
+    # for DST. Adjust the hour below if you want it pinned exactly.
+    - cron: "0 3 * * 0"
+  workflow_dispatch: {} # lets you also trigger it manually from the Actions tab
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Generate and post report
+        env:
+          TRELLO_KEY: ${{ secrets.TRELLO_KEY }}
+          TRELLO_TOKEN: ${{ secrets.TRELLO_TOKEN }}
+          TRELLO_BOARD: ${{ secrets.TRELLO_BOARD }}
+          TRELLO_REPORT_LIST: ${{ secrets.TRELLO_REPORT_LIST }}
+        run: node scripts/weekly-report.js

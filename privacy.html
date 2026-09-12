@@ -1,0 +1,67 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Punch Card — Privacy Policy</title>
+  <style>
+    body { font-family: -apple-system, Helvetica, Arial, sans-serif; max-width: 640px; margin: 40px auto; padding: 0 20px; color: #172b4d; line-height: 1.6; }
+    h1 { font-size: 22px; }
+    h2 { font-size: 16px; margin-top: 28px; }
+    code { background: #f4f5f7; padding: 1px 5px; border-radius: 3px; }
+  </style>
+</head>
+<body>
+  <h1>Punch Card — Privacy Policy</h1>
+  <p><em>Last updated: 2026</em></p>
+
+  <p>
+    Punch Card is a personal-use Trello Power-Up. It is not published to Trello's public
+    directory and is not offered as a service to other users — it runs only on boards
+    where its owner has manually enabled it.
+  </p>
+
+  <h2>There is no backend</h2>
+  <p>
+    Punch Card has no server of its own. It's a static set of files (hosted on GitHub
+    Pages) that runs entirely inside Trello, using Trello's own Power-Up platform. There
+    is no database, no analytics, and no third party this Power-Up sends your data to.
+  </p>
+
+  <h2>What data it reads and stores</h2>
+  <p>
+    Punch Card stores three values per card — an estimated-hours number, a spent-hours
+    running total, and (briefly, while a stopwatch is active) a timer start time — using
+    Trello's own built-in per-card storage for Power-Ups (<code>pluginData</code>). This
+    data lives inside your Trello board, governed by Trello's own privacy policy and
+    security, exactly like any other card field.
+  </p>
+  <p>
+    To build the board-wide time report, Punch Card reads card details (name, list,
+    labels, due date) and comment text across the board using Trello's REST API, with
+    read-only access you explicitly authorize. It does not read anything beyond what's
+    needed to compute the report, and that data is used only to render the report in
+    your browser — it is not saved anywhere by Punch Card itself.
+  </p>
+
+  <h2>Scheduled reports</h2>
+  <p>
+    If a scheduled weekly report is configured, it runs as a GitHub Actions workflow
+    that fetches fresh data from Trello at run time and creates a new Trello card
+    summarizing the week, with the full per-card detail attached as a CSV file. This
+    uses a separate, read-and-write Trello token that only this scheduled script holds;
+    it is stored as an encrypted secret in GitHub Actions and is never exposed in this
+    Power-Up's code or to anyone viewing the board. No report data is stored on GitHub
+    at all — only inside Trello, on the card it creates.
+  </p>
+
+  <h2>Data deletion</h2>
+  <p>
+    Disabling the Power-Up on a board, or deleting a card, removes the associated data
+    through Trello's own mechanisms. Since nothing is stored outside Trello and this
+    repository, there is nowhere else data would persist.
+  </p>
+
+  <h2>Contact</h2>
+  <p>Questions about this Power-Up can be directed to its owner via the support email listed in Trello's Power-Up admin portal.</p>
+</body>
+</html>
