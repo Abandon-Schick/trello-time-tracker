@@ -211,7 +211,9 @@ async function main() {
   let weeklySpentLine;
   let weeklySpent = null;
   if (priorReports.length > 0) {
-    const m = priorReports[0].desc.match(/TOTAL_SPENT:([\d.]+)/);
+    const priorDesc = priorReports[0].desc;
+    // New cards carry the reference total as a visible bullet; older ones use the hidden marker.
+    const m = priorDesc.match(/Total time spent to date:\s*([\d.]+)h/) || priorDesc.match(/TOTAL_SPENT:([\d.]+)/);
     if (m) {
       weeklySpent = round(grandSpent - parseFloat(m[1]));
       weeklySpentLine = `Time spent this week: ${weeklySpent}h`;
@@ -232,10 +234,10 @@ async function main() {
   const desc =
     `**Week of ${mmdd(titleDate)}**\n\n` +
     `- ${weeklySpentLine}\n` +
+    `- Total time spent to date: ${round(grandSpent)}h\n` +
     `- Total time remaining (all projects): ${round(totalRemaining)}h\n` +
     `- Remaining for tasks due by ${mmdd(nextWeekEnd)} (incl. overdue): ${round(dueNextWeekRemaining)}h\n\n` +
-    `${touched} cards have time data logged. Full per-card detail attached as CSV.\n\n` +
-    `<!-- TOTAL_SPENT:${grandSpent} -->`;
+    `${touched} cards have time data logged. Full per-card detail attached as CSV.`;
 
   const card = await createCard({
     idList: REPORT_LIST,
