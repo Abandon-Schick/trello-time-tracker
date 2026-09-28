@@ -246,7 +246,7 @@ async function main() {
     due: nextMondayAt9amEasternISO(now)
   });
 
-  await postComment(card.id, `#estimate ${REPORT_ESTIMATE_HOURS}h`);
+  await postComment(card.id, `\\#estimate ${REPORT_ESTIMATE_HOURS}h`);
   await postCsvAttachment(card.id, `time-report-${mmdd(titleDate).replace("/", "-")}.csv`, csv);
 
   console.log(`Created card "${title}" (${card.id}).`);

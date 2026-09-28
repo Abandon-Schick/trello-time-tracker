@@ -60,15 +60,15 @@ The first time you click **Time Report**, it'll ask you to authorize read-only a
 
 Trello's mobile apps don't support custom Power-Ups at all — only a handful Trello builds itself. But comments work fine on mobile, so that's the bridge: run your phone's native stopwatch, and when you're done, add a comment on the card from the Trello app using one of these formats:
 
-- `#time 45m`
-- `#time 1.5h`
-- `#time 1:30` (1 hour 30 minutes)
+- `\#time 45m`
+- `\#time 1.5h`
+- `\#time 1:30` (1 hour 30 minutes)
 
-Heads up: Trello's mobile app renders a leading `#` as a big heading, so these comments will look oversized in the comment thread — that's cosmetic only, the underlying text is unchanged and the sync still matches it fine.
+Type the backslash: Trello renders a bare leading `#` as a big heading, and the `\` escapes it so the comment looks normal. The sync matches either form (`\#time 1h` or `#time 1h`), so a comment without the backslash still counts — it just looks oversized.
 
-Next time you open **Log Time** on that card from a browser (or the trello.com Home Screen shortcut), it automatically scans for any new `#time` comments since the last check, adds them to the running total, and tells you what it found. You don't have to do anything extra — it also runs a manual "Check comments now" button if you want to trigger it without waiting.
+Next time you open **Log Time** on that card from a browser (or the trello.com Home Screen shortcut), it automatically scans for any new `\#time` comments since the last check, adds them to the running total, and tells you what it found. You don't have to do anything extra — it also runs a manual "Check comments now" button if you want to trigger it without waiting.
 
-The same works for estimates — comment `#estimate 2h`, `#estimate 1.5`, or `#estimate 1:30` and open **Set Estimate** to pick it up. One difference: time-spent comments *add up* (each one is more work logged), but an estimate comment *replaces* the current value rather than stacking — so if you post two `#estimate` comments on the same card, only the most recent one wins. If you've hand-edited the number in the popup more recently than any comment, that edit sticks until a newer comment arrives.
+The same works for estimates — comment `\#estimate 2h`, `\#estimate 1.5`, or `\#estimate 1:30` and open **Set Estimate** to pick it up. One difference: time-spent comments *add up* (each one is more work logged), but an estimate comment *replaces* the current value rather than stacking — so if you post two `\#estimate` comments on the same card, only the most recent one wins. If you've hand-edited the number in the popup more recently than any comment, that edit sticks until a newer comment arrives.
 
 **This isn't instant.** Trello doesn't notify a Power-Up the moment a comment is posted — the code only runs when you actually open that popup in a browser session. So the comment sits there until you're next at a computer (or the phone's Home Screen shortcut) and open Log Time — which fits naturally with the weekly triage rhythm, just not a live sync.
 
@@ -104,7 +104,7 @@ A GitHub Actions workflow (`.github/workflows/weekly-report.yml`) runs every Sat
    - `TRELLO_REPORT_LIST` — the list ID from step 1
 5. That's it — no repo permission changes needed, since nothing gets committed to GitHub. To test it immediately rather than waiting for Saturday, go to the Actions tab → "Weekly Time Report" → **Run workflow**.
 
-**On the estimate:** the card's 0.5h estimate is set via a `#estimate 0.5h` comment the script posts right after creating the card — not a direct write, since (as covered above) Trello's REST API can't write `pluginData` at all. It'll show correctly the moment you or the Report popup next looks at that card, using the same comment-sync logic already built.
+**On the estimate:** the card's 0.5h estimate is set via a `\#estimate 0.5h` comment the script posts right after creating the card — not a direct write, since (as covered above) Trello's REST API can't write `pluginData` at all. It'll show correctly the moment you or the Report popup next looks at that card, using the same comment-sync logic already built.
 
 **Changing the day/time or title convention:** the `cron` line in the workflow controls timing (see the file for the UTC/Eastern conversion note). The title currently uses the date of the day *after* the Saturday-night run (so a Saturday-night run titles itself with Sunday's date) — if you want it to use the due-Monday's date or the run date instead, that's the `titleDate` line near the bottom of `scripts/weekly-report.js`.
 
