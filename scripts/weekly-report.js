@@ -3,7 +3,8 @@
 // no browser) so it can run unattended via GitHub Actions. Each run:
 //   1. Fetches fresh card/comment data from Trello and computes live totals
 //      (same merge logic as the Report popup).
-//   2. Finds last week's report card (in TRELLO_REPORT_LIST) and extracts
+//   2. Finds last week's report card (anywhere on the board, archived or not,
+//      since cards get moved to Done) and extracts
 //      its embedded cumulative-spent total, to compute a true weekly delta
 //      rather than a lifetime running total.
 //   3. Creates a new report card with the stats in its description, a
@@ -159,7 +160,7 @@ async function main() {
     fetchJson(`https://api.trello.com/1/boards/${BOARD}/lists?${base}`),
     fetchJson(`https://api.trello.com/1/boards/${BOARD}/cards?fields=name,idList,labels,due&pluginData=true&${base}`),
     fetchJson(`https://api.trello.com/1/boards/${BOARD}/actions?filter=commentCard&limit=1000&fields=data,date&${base}`),
-    fetchJson(`https://api.trello.com/1/lists/${REPORT_LIST}/cards?filter=all&fields=name,id,desc&${base}`)
+    fetchJson(`https://api.trello.com/1/boards/${BOARD}/cards/all?fields=name,id,desc&${base}`)
   ]);
 
   const listMap = {};
