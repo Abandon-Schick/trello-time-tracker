@@ -3,8 +3,9 @@
 // no browser) so it can run unattended via GitHub Actions. Each run:
 //   1. Fetches fresh card/comment data from Trello and computes live totals
 //      (same merge logic as the Report popup).
-//   2. Finds last week's report card (anywhere on the board, archived or not,
-//      since cards get moved to Done) and extracts
+//   2. Finds last week's report card (the card with the "Reports" label, or an
+//      older one titled "... Weekly Time Management", anywhere on the board,
+//      archived or not, since cards get moved to Done) and extracts
 //      its embedded cumulative-spent total, to compute a true weekly delta
 //      rather than a lifetime running total.
 //   3. Creates a new report card with the stats in its description, a
@@ -24,6 +25,7 @@ if (!KEY || !TOKEN || !BOARD || !REPORT_LIST) {
 const TIME_COMMENT_RE = /#time\s+([\d.:]+)\s*(h|hr|hrs|m|min|mins)?/i;
 const ESTIMATE_COMMENT_RE = /#estimate\s+([\d.:]+)\s*(h|hr|hrs|m|min|mins)?/i;
 const CARD_TITLE_SUFFIX = "Weekly Time Management";
+const REPORT_LABEL_NAME = "Reports";
 const REPORT_ESTIMATE_HOURS = 0.5;
 
 function parseHours(raw, unit) {
@@ -111,11 +113,23 @@ async function postCsvAttachment(cardId, filename, csv) {
   if (!res.ok) throw new Error(`Trello attachment upload failed ${res.status}: ${await res.text()}`);
 }
 
-async function createCard({ idList, name, desc, due }) {
+async function findOrCreateReportLabel(labels) {
+  const existing = labels.find((l) => (l.name || "").trim().toLowerCase() === REPORT_LABEL_NAME.toLowerCase());
+  if (existing) return existing.id;
+  const res = await fetch(`https://api.trello.com/1/boards/${BOARD}/labels`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ key: KEY, token: TOKEN, name: REPORT_LABEL_NAME, color: "black" })
+  });
+  if (!res.ok) throw new Error(`Trello label creation failed ${res.status}: ${await res.text()}`);
+  return (await res.json()).id;
+}
+
+async function createCard({ idList, name, desc, due, idLabels }) {
   const res = await fetch(`https://api.trello.com/1/cards`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ key: KEY, token: TOKEN, idList, name, desc, due })
+    body: new URLSearchParams({ key: KEY, token: TOKEN, idList, name, desc, due, idLabels })
   });
   if (!res.ok) throw new Error(`Trello card creation failed ${res.status}: ${await res.text()}`);
   return res.json();
@@ -156,11 +170,12 @@ async function main() {
   const base = `key=${KEY}&token=${TOKEN}`;
   const now = new Date();
 
-  const [lists, cards, actions, priorReportCards] = await Promise.all([
+  const [lists, cards, actions, priorReportCards, boardLabels] = await Promise.all([
     fetchJson(`https://api.trello.com/1/boards/${BOARD}/lists?${base}`),
     fetchJson(`https://api.trello.com/1/boards/${BOARD}/cards?fields=name,idList,labels,due&pluginData=true&${base}`),
     fetchJson(`https://api.trello.com/1/boards/${BOARD}/actions?filter=commentCard&limit=1000&fields=data,date&${base}`),
-    fetchJson(`https://api.trello.com/1/boards/${BOARD}/cards/all?fields=name,id,desc&${base}`)
+    fetchJson(`https://api.trello.com/1/boards/${BOARD}/cards/all?fields=name,id,desc,idLabels&${base}`),
+    fetchJson(`https://api.trello.com/1/boards/${BOARD}/labels?limit=100&${base}`)
   ]);
 
   const listMap = {};
@@ -205,8 +220,10 @@ async function main() {
   const round = (n) => Math.round(n * 100) / 100;
 
   // ---- Find last week's report card, diff against it for true weekly spent ----
+  const reportLabelId = await findOrCreateReportLabel(boardLabels);
+  // Label is the primary signal; the title match covers older cards created before labels.
   const priorReports = priorReportCards
-    .filter((c) => c.name.endsWith(CARD_TITLE_SUFFIX))
+    .filter((c) => (c.idLabels || []).includes(reportLabelId) || c.name.endsWith(CARD_TITLE_SUFFIX))
     .sort((a, b) => cardCreatedAt(b.id) - cardCreatedAt(a.id));
 
   let weeklySpentLine;
@@ -244,7 +261,8 @@ async function main() {
     idList: REPORT_LIST,
     name: title,
     desc,
-    due: nextMondayAt9amEasternISO(now)
+    due: nextMondayAt9amEasternISO(now),
+    idLabels: reportLabelId
   });
 
   await postComment(card.id, `\\#estimate ${REPORT_ESTIMATE_HOURS}h`);
