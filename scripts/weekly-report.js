@@ -26,6 +26,17 @@ const TIME_COMMENT_RE = /#time\s+([\d.:]+)\s*(h|hr|hrs|m|min|mins)?/i;
 const ESTIMATE_COMMENT_RE = /#estimate\s+([\d.:]+)\s*(h|hr|hrs|m|min|mins)?/i;
 const CARD_TITLE_SUFFIX = "Weekly Time Management";
 const REPORT_LABEL_NAME = "Reports";
+const CHECKLIST_NAME = "Checklist";
+const CHECKLIST_ITEMS = [
+  "Review last week's time",
+  "View time spent by label",
+  "Compare time on due items with available time this week",
+  "Block time on calendar",
+  "Review overdue items: reschedule or drop (optional)",
+  "Re-estimate in-progress tasks that have run over (optional)",
+  "Add due dates and estimates to prioritized items (optional)",
+  "Triage Ideas and Follow-up lists (optional)"
+];
 const REPORT_ESTIMATE_HOURS = 0.5;
 
 function parseHours(raw, unit) {
@@ -123,6 +134,23 @@ async function findOrCreateReportLabel(labels) {
   });
   if (!res.ok) throw new Error(`Trello label creation failed ${res.status}: ${await res.text()}`);
   return (await res.json()).id;
+}
+
+async function addChecklist(cardId) {
+  const post = async (url, params) => {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ key: KEY, token: TOKEN, ...params })
+    });
+    if (!res.ok) throw new Error(`Trello checklist request failed ${res.status}: ${await res.text()}`);
+    return res.json();
+  };
+  const checklist = await post("https://api.trello.com/1/checklists", { idCard: cardId, name: CHECKLIST_NAME });
+  // Sequential so the items keep their order.
+  for (const name of CHECKLIST_ITEMS) {
+    await post(`https://api.trello.com/1/checklists/${checklist.id}/checkItems`, { name, pos: "bottom" });
+  }
 }
 
 async function createCard({ idList, name, desc, due, idLabels }) {
@@ -265,6 +293,7 @@ async function main() {
     idLabels: reportLabelId
   });
 
+  await addChecklist(card.id);
   await postComment(card.id, `\\#estimate ${REPORT_ESTIMATE_HOURS}h`);
   await postCsvAttachment(card.id, `time-report-${mmdd(titleDate).replace("/", "-")}.csv`, csv);
 
