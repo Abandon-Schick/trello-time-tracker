@@ -32,10 +32,10 @@ const CHECKLIST_ITEMS = [
   "View time spent by label",
   "Compare time on due items with available time this week",
   "Block time on calendar",
-  "Review overdue items: reschedule or drop (optional)",
-  "Re-estimate in-progress tasks that have run over (optional)",
-  "Add due dates and estimates to prioritized items (optional)",
-  "Triage Ideas and Follow-up lists (optional)"
+  "Review overdue items: reschedule or drop",
+  "Re-estimate in-progress tasks that have run over",
+  "Add due dates and estimates to prioritized items",
+  "Triage Ideas and Follow-up lists"
 ];
 const REPORT_ESTIMATE_HOURS = 0.5;
 
